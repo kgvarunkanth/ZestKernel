@@ -31,7 +31,7 @@ $(warning LSE atomics not supported by binutils)
 endif
 
 ifeq ($(CONFIG_COMPAT_VDSO), y)
-  CROSS_COMPILE_ARM32 ?= $(CONFIG_CROSS_COMPILE_ARM32:"%"=%)
+  CROSS_COMPILE_ARM32 ?= ccache $(CONFIG_CROSS_COMPILE_ARM32:"%"=%)
 
   # Check that the user has provided a valid prefix for the 32-bit toolchain.
   # To prevent selecting the system $(cc-name) by default, the prefix is not
