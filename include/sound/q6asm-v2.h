@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2014 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 #ifndef __Q6_ASM_V2_H__
 #define __Q6_ASM_V2_H__
 
@@ -292,6 +297,9 @@ int q6asm_open_read_v4(struct audio_client *ac, uint32_t format,
 int q6asm_open_read_v5(struct audio_client *ac, uint32_t format,
 		       uint16_t bits_per_sample, bool ts_mode);
 
+int q6asm_open_read_with_retry(struct audio_client *ac, uint32_t format,
+		       uint16_t bits_per_sample, bool ts_mode);
+
 int q6asm_open_write(struct audio_client *ac, uint32_t format
 		/*, uint16_t bits_per_sample*/);
 
@@ -338,6 +346,9 @@ int q6asm_open_read_write_v2(struct audio_client *ac, uint32_t rd_format,
 			     int topology);
 
 int q6asm_open_loopback_v2(struct audio_client *ac,
+			   uint16_t bits_per_sample);
+
+int q6asm_open_loopback_with_retry(struct audio_client *ac,
 			   uint16_t bits_per_sample);
 
 int q6asm_open_transcode_loopback(struct audio_client *ac,
@@ -731,4 +742,8 @@ int q6asm_adjust_session_clock(struct audio_client *ac,
 		uint32_t adjust_time_lsw,
 		uint32_t adjust_time_msw);
 int q6asm_get_svc_version(uint32_t service_id);
+		
+/* SOMC added: Send tuning parameter for Sony effect*/
+int sony_hweffect_send_tuning_params(unsigned int effect_id, void *client);
+
 #endif /* __Q6_ASM_H__ */

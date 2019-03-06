@@ -12,6 +12,11 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * NOTE: This file has been modified by Sony Mobile Communications Inc.
+ * Modifications are Copyright (c) 2014 Sony Mobile Communications Inc,
+ * and licensed under the license of the file.
+ */
 #include <linux/fs.h>
 #include <linux/mutex.h>
 #include <linux/wait.h>
@@ -42,6 +47,9 @@
 #include <sound/adsp_err.h>
 #include <sound/compress_params.h>
 #include <sound/q6common.h>
+
+#include "sound/sony-hweffect.h"
+#include "sound/sony-hweffect-params.h"
 
 #define TRUE        0x01
 #define FALSE       0x00
@@ -85,6 +93,17 @@ enum {
 
 #define ASM_SET_BIT(n, x)	(n |= 1 << x)
 #define ASM_TEST_BIT(n, x)	((n >> x) & 1)
+
+#ifndef MIN
+#define MIN(x, y) (((x) < (y)) ? (x) : (y))
+#endif
+#define ONCE_PARAM_SIZE 460
+
+struct param_divide {
+	uint8_t divide_num;
+	uint8_t no;
+	uint16_t offset;
+};
 
 /* TODO, combine them together */
 static DEFINE_MUTEX(session_lock);
@@ -576,6 +595,136 @@ static void config_debug_fs_init(void)
 	return;
 }
 #endif
+
+/* SOMC effect control start */
+
+int sony_hweffect_send_tuning_params(unsigned int effect_id, void *client)
+{
+	int rc = 0x00;
+	char *param, *tuning_param_s, *tuning_param_d;
+	uint32_t module_id, param_id;
+	uint32_t param_length;
+	struct param_hdr_v1 *param_data;
+	struct param_divide *divide;
+	uint32_t i, num, len, ret;
+
+	pr_debug("%s: effect_id=%u\n", __func__, effect_id);
+	if (client == NULL) {
+		pr_err("%s: audio client is NULL\n", __func__);
+		return -EINVAL;
+	}
+
+	param = kzalloc(MAX_INBAND_PARAM_SZ, GFP_KERNEL);
+	if (!param) {
+		pr_err("%s, param memory alloc failed\n", __func__);
+		return -ENOMEM;
+	}
+
+	tuning_param_d = param + sizeof(struct param_hdr_v1);
+
+	switch (effect_id) {
+	case SFORCE_PARAM:
+		tuning_param_s = sony_hweffect_params_getparam(SFORCE_PARAM);
+		if (tuning_param_s == NULL) {
+			pr_err("%s: sforce param is NULL\n", __func__);
+			rc = -EINVAL;
+			goto invalid_config;
+		}
+
+		module_id = ASM_MODULE_ID_SONYBUNDLE;
+		param_id = PARAM_ID_SB_SFORCE_TUNING;
+		param_length = sizeof(struct s_force_tuning_params);
+		pr_debug("%s: SFORCE_PARAM\n module_id=%u, param_id=%u, param_length=%u",
+			__func__, module_id, param_id, param_length);
+		break;
+
+	case CLEARPHASE_HP_PARAM:
+		tuning_param_s = sony_hweffect_params_getparam(
+							CLEARPHASE_HP_PARAM);
+		if (tuning_param_s == NULL) {
+			pr_err("%s: clearphase_hp param is NULL\n", __func__);
+			rc = -EINVAL;
+			goto invalid_config;
+		}
+
+		module_id = ASM_MODULE_ID_SONYBUNDLE;
+		param_id = PARAM_ID_SB_CLEARPHASE_HP_TUNING;
+		param_length = sizeof(struct clearphase_hp_tuning_params);
+		pr_debug("%s: CLEARPHASE_HP_PARAM\n module_id=%u, param_id=%u, param_length=%u",
+			__func__, module_id, param_id, param_length);
+		break;
+
+	case CLEARPHASE_SP_PARAM:
+		tuning_param_s = sony_hweffect_params_getparam(
+							CLEARPHASE_SP_PARAM);
+		if (tuning_param_s == NULL) {
+			pr_err("%s: clearphase_sp param is NULL\n", __func__);
+			rc = -EINVAL;
+			goto invalid_config;
+		}
+
+		module_id = ASM_MODULE_ID_SONYBUNDLE;
+		param_id = PARAM_ID_SB_CLEARPHASE_SP_TUNING;
+		param_length = sizeof(struct clearphase_sp_tuning_params);
+		pr_debug("%s: CLEARPHASE_SP_PARAM\n module_id=%u, param_id=%u, param_length=%u",
+			__func__, module_id, param_id, param_length);
+		break;
+
+	case XLOUD_PARAM:
+		tuning_param_s = sony_hweffect_params_getparam(XLOUD_PARAM);
+		if (tuning_param_s == NULL) {
+			pr_err("%s: xloud param is NULL\n", __func__);
+			rc = -EINVAL;
+			goto invalid_config;
+		}
+
+		module_id = ASM_MODULE_ID_SONYBUNDLE;
+		param_id = PARAM_ID_SB_XLOUD_TUNING;
+		param_length = sizeof(struct xloud_tuning_params);
+		pr_debug("%s: XLOUD_PARAM\n module_id=%u, param_id=%u, param_length=%u",
+			__func__, module_id, param_id, param_length);
+		break;
+
+	default:
+		pr_err("%s: Invalid effect id(%u)\n", __func__, effect_id);
+		rc = -EINVAL;
+		goto invalid_config;
+	};
+
+
+	num = (param_length + ONCE_PARAM_SIZE - 1) / ONCE_PARAM_SIZE;
+	for (i = 0; i < num; i++) {
+		len = MIN(ONCE_PARAM_SIZE, param_length
+				- (i * ONCE_PARAM_SIZE));
+		divide = (struct param_divide *)tuning_param_d;
+		divide->divide_num = (uint8_t)num;
+		divide->no = (uint8_t)i;
+		divide->offset = (uint16_t)(i * ONCE_PARAM_SIZE);
+		memcpy(tuning_param_d + sizeof(struct param_divide),
+				tuning_param_s + divide->offset, len);
+		len += sizeof(struct param_divide);
+		param_data = (struct param_hdr_v1 *)param;
+		param_data->module_id = module_id;
+		param_data->param_id = param_id;
+		param_data->param_size = (uint16_t)len;
+		param_data->reserved = 0;
+		len += sizeof(struct param_hdr_v1);
+		ret = q6asm_set_pp_params(
+				(struct audio_client *)client, NULL,
+				(char *)param, len);
+		if (ret < 0) {
+			pr_err("%s: set-param failed ret[%d]\n", __func__, ret);
+			rc = -EINVAL;
+			goto invalid_config;
+		}
+	}
+
+invalid_config:
+	kfree(param);
+	return rc;
+}
+
+/* SOMC effect control end */
 
 int q6asm_mmap_apr_dereg(void)
 {
@@ -2974,6 +3123,52 @@ int q6asm_open_read_v5(struct audio_client *ac, uint32_t format,
 }
 EXPORT_SYMBOL(q6asm_open_read_v5);
 
+static int q6asm_open_read_version_adaptor(struct audio_client *ac,
+			uint32_t format, uint16_t bits_per_sample, bool ts_mode)
+{
+	if (q6asm_get_svc_version(APR_SVC_ASM) >= ADSP_ASM_API_VERSION_V2)
+		return q6asm_open_read_v5(ac, FORMAT_LINEAR_PCM,
+						bits_per_sample, false);
+	else
+		return q6asm_open_read_v4(ac, FORMAT_LINEAR_PCM,
+						bits_per_sample, false);
+}
+
+/*
+ * q6asm_open_read_with_retry - Opens audio capture session, with retrying
+ * in case of session ID conflict
+ *
+ * @ac: Client session handle
+ * @format: encoder format
+ * @bits_per_sample: bit width of capture session
+ * @ts_mode: timestamp mode
+ */
+int q6asm_open_read_with_retry(struct audio_client *ac, uint32_t format,
+			uint16_t bits_per_sample, bool ts_mode)
+{
+	int i, rc;
+
+	mutex_lock(&session_lock);
+	for (i = 0; i < ASM_ACTIVE_STREAMS_ALLOWED; i++) {
+		rc = q6asm_open_read_version_adaptor(ac, format,
+				bits_per_sample, ts_mode);
+		if (rc != -EALREADY)
+			break;
+
+		pr_debug("%s: session %d is occupied, try next\n",
+				__func__, ac->session);
+		q6asm_session_set_ignore(ac->session);
+		rc = q6asm_session_try_next(ac);
+		if (rc < 0)
+			break;
+	}
+	q6asm_session_clean_ignore();
+	mutex_unlock(&session_lock);
+
+	return rc;
+}
+EXPORT_SYMBOL(q6asm_open_read_with_retry);
+
 int q6asm_open_write_compressed(struct audio_client *ac, uint32_t format,
 				uint32_t passthrough_flag)
 {
@@ -3667,7 +3862,29 @@ int q6asm_open_loopback_v2(struct audio_client *ac, uint16_t bits_per_sample)
 fail_cmd:
 	return rc;
 }
+int q6asm_open_loopback_with_retry(struct audio_client *ac,
+				uint16_t bits_per_sample)
+{
+	int i, rc;
 
+	mutex_lock(&session_lock);
+	for (i = 0; i < ASM_ACTIVE_STREAMS_ALLOWED; i++) {
+		rc = q6asm_open_loopback_v2(ac, bits_per_sample);
+		if (rc != -EALREADY)
+			break;
+		pr_debug("%s: session %d is occupied, try next\n",
+					__func__, ac->session);
+		q6asm_session_set_ignore(ac->session);
+		rc = q6asm_session_try_next(ac);
+		if (rc < 0)
+			break;
+	}
+	q6asm_session_clean_ignore();
+	mutex_unlock(&session_lock);
+
+	return rc;
+}
+EXPORT_SYMBOL(q6asm_open_loopback_with_retry);
 
 int q6asm_open_transcode_loopback(struct audio_client *ac,
 			uint16_t bits_per_sample,
